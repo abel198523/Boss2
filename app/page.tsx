@@ -14,7 +14,7 @@ const cards = [
 export default function Page() {
   const [activeTab, setActiveTab] = useState('BINGO')
   const [screen, setScreen] = useState<'landing' | 'game' | 'cards'>('landing')
-  const [cardTimer, setCardTimer] = useState(10)
+  const [cardTimer, setCardTimer] = useState(30)
   const [room, setRoom] = useState('New venom edit')
   const [lastCall, setLastCall] = useState(62)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -44,9 +44,26 @@ export default function Page() {
 
   useEffect(() => {
     if (screen !== 'cards') return
-    setCardTimer(10)
-    const timer = window.setInterval(() => setCardTimer((value) => Math.max(0, value - 1)), 1000)
-    return () => window.clearInterval(timer)
+
+    let timer: number | undefined
+    let cancelled = false
+
+    const synchronizeTimer = async () => {
+      const response = await fetch('/api/card-timer', { cache: 'no-store' })
+      const { cycleEndsAt, serverTime } = await response.json() as { cycleEndsAt: number; serverTime: number }
+      const serverOffset = serverTime - Date.now()
+      const updateTimer = () => setCardTimer(Math.max(0, Math.ceil((cycleEndsAt - (Date.now() + serverOffset)) / 1000)))
+
+      if (cancelled) return
+      updateTimer()
+      timer = window.setInterval(updateTimer, 250)
+    }
+
+    void synchronizeTimer()
+    return () => {
+      cancelled = true
+      if (timer) window.clearInterval(timer)
+    }
   }, [screen])
 
   useEffect(() => {
@@ -56,7 +73,7 @@ export default function Page() {
   function enterCardSelection() {
     setActionMessage('')
     setSelectingCards(true)
-    setCardTimer(10)
+    setCardTimer(30)
     setScreen('cards')
   }
 
@@ -115,7 +132,7 @@ export default function Page() {
 
       <div className={`screen-stage ${screen === 'landing' ? 'show-landing' : screen === 'game' ? 'show-game' : 'show-cards'}`}>
         <section className="screen-panel landing-screen" aria-hidden={screen !== 'landing'}><div className="landing-content"><div className="landing-kicker"><span /> WELCOME TO THE ROOM <span /></div><h1>Play. Win.<br /><em>Be Happy.</em></h1><p>Join the live Bingo round, choose your cards, and follow every call in real time.</p><div className="landing-actions"><button type="button" className="landing-primary" onClick={enterCardSelection}>PLAY BINGO</button></div><div className="landing-stats"><span><strong>{round?.pot ?? '32.00'}</strong><small>PRIZE POOL</small></span><span><strong>{round?.takenCardNumbers.length ?? 4}</strong><small>PLAYERS</small></span><span><strong>75</strong><small>NUMBERS</small></span></div></div></section>
-        <section className="screen-panel cards-screen" aria-hidden={screen !== 'cards'}><div className="screen-heading"><button type="button" className="flow-back" onClick={() => setScreen('landing')}>BACK</button><div><span>CHOOSE YOUR CARDS</span><strong>Round starts when the timer ends</strong></div></div><div className="card-timer-track"><span style={{ width: `${(cardTimer / 10) * 100}%` }} /></div><div className="selection-status">{cardTimer > 0 ? 'Select at least one card before the countdown ends.' : 'Starting the live game...'}</div>{selectingCards && <section className="card-selection-panel panel-edge"><div className="selection-heading"><div><strong>SELECT YOUR CARDS</strong><span>Choose up to 4 cards · 1.00 each</span></div><b>{selectedCards.size}/4</b></div><div className="card-grid-countdown card-countdown" aria-live="polite"><small>STARTS IN</small><strong>00:{String(cardTimer).padStart(2, '0')}</strong></div><div className="selection-grid">{Array.from({ length: 300 }, (_, index) => index + 1).map((cardNumber) => { const taken = round?.takenCardNumbers.includes(cardNumber); const selected = selectedCards.has(cardNumber); return <button type="button" key={cardNumber} disabled={taken} className={`${selected ? 'selected' : ''} ${taken ? 'taken' : ''}`} onClick={() => toggleCard(cardNumber)}>{cardNumber}</button> })}</div><button className="purchase-button" disabled={!selectedCards.size} onClick={() => void buySelectedCards()}>BUY SELECTED CARDS</button>{actionMessage && <p className="action-message">{actionMessage}</p>}</section>}<section className="cards-grid">{activeCards.map((card) => <article className="bingo-card" key={card.id}><div className="card-header"><strong>CARD&nbsp; #{card.id}</strong><span>{card.progress}</span></div><div className="card-letters">{['B','I','N','G','O'].map((letter) => <span key={letter}>{letter}</span>)}</div>{card.rows.map((row, rowIndex) => <div className="card-row" key={rowIndex}>{row.map((number, index) => <span className={number === '★' ? 'star' : calledNumbers.has(Number(number)) ? 'card-called' : ''} key={`${rowIndex}-${index}`}>{number}</span>)}</div>)}</article>)}</section></section>
+        <section className="screen-panel cards-screen" aria-hidden={screen !== 'cards'}><div className="screen-heading"><button type="button" className="flow-back" onClick={() => setScreen('landing')}>BACK</button><div><span>CHOOSE YOUR CARDS</span><strong>Round starts when the timer ends</strong></div></div><div className="card-timer-track"><span style={{ width: `${(cardTimer / 30) * 100}%` }} /></div><div className="selection-status">{cardTimer > 0 ? 'Select at least one card before the countdown ends.' : 'Starting the live game...'}</div>{selectingCards && <section className="card-selection-panel panel-edge"><div className="selection-heading"><div><strong>SELECT YOUR CARDS</strong><span>Choose up to 4 cards · 1.00 each</span></div><b>{selectedCards.size}/4</b></div><div className="card-grid-countdown card-countdown" aria-live="polite"><small>STARTS IN</small><strong>00:{String(cardTimer).padStart(2, '0')}</strong></div><div className="selection-grid">{Array.from({ length: 300 }, (_, index) => index + 1).map((cardNumber) => { const taken = round?.takenCardNumbers.includes(cardNumber); const selected = selectedCards.has(cardNumber); return <button type="button" key={cardNumber} disabled={taken} className={`${selected ? 'selected' : ''} ${taken ? 'taken' : ''}`} onClick={() => toggleCard(cardNumber)}>{cardNumber}</button> })}</div><button className="purchase-button" disabled={!selectedCards.size} onClick={() => void buySelectedCards()}>BUY SELECTED CARDS</button>{actionMessage && <p className="action-message">{actionMessage}</p>}</section>}<section className="cards-grid">{activeCards.map((card) => <article className="bingo-card" key={card.id}><div className="card-header"><strong>CARD&nbsp; #{card.id}</strong><span>{card.progress}</span></div><div className="card-letters">{['B','I','N','G','O'].map((letter) => <span key={letter}>{letter}</span>)}</div>{card.rows.map((row, rowIndex) => <div className="card-row" key={rowIndex}>{row.map((number, index) => <span className={number === '★' ? 'star' : calledNumbers.has(Number(number)) ? 'card-called' : ''} key={`${rowIndex}-${index}`}>{number}</span>)}</div>)}</article>)}</section></section>
         <section className="screen-panel game-screen" aria-hidden={screen !== 'game'}><div className="flow-game-heading"><button type="button" className="flow-back" onClick={() => setScreen('landing')}>BACK</button><span>LIVE GAME</span><button type="button" className="screen-primary" onClick={() => setScreen('cards')}>CHOOSE CARDS</button></div><section className="number-board panel-edge"><div className="bingo-letters">{['B','I','N','G','O'].map((letter) => <span key={letter}>{letter}</span>)}</div><div className="number-grid">{numbers.map((number) => <button key={number} className={calledNumbers.has(number) ? 'number called' : 'number'} onClick={() => setLastCall(number)}>{number}</button>)}</div></section>
 
       <section className="call-panel">
